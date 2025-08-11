@@ -38,12 +38,36 @@ A React-based frontend application for tracking and visualizing marketing campai
 npm install
 ```
 
-2. Start the development server:
+2. Set up environment variables:
+```bash
+# Copy the example environment file
+cp env.example .env
+
+# Edit the .env file with your configuration
+VITE_API_BASE_URL=http://localhost:5000
+```
+
+3. Start the development server:
 ```bash
 npm run dev
 ```
 
-3. Open your browser and navigate to `http://localhost:5173`
+4. Open your browser and navigate to `http://localhost:5173`
+
+### Environment Configuration
+
+The application uses environment variables for configuration. Create a `.env` file in the client directory with the following variables:
+
+```env
+# API Configuration
+VITE_API_BASE_URL=http://localhost:5000
+
+# Development Configuration
+VITE_APP_NAME=Campaign Analytics Dashboard
+VITE_APP_VERSION=1.0.0
+```
+
+**Note**: All environment variables must be prefixed with `VITE_` to be accessible in the frontend application.
 
 ### Build for Production
 
@@ -53,7 +77,7 @@ npm run build
 
 ## API Integration
 
-The frontend connects to the backend API at `http://localhost:5000` and includes:
+The frontend connects to the backend API using the `VITE_API_BASE_URL` environment variable and includes:
 
 - **Authentication endpoints**: `/auth/login`, `/auth/signup`
 - **Metrics endpoints**: `/metrics` (GET, POST, PUT, DELETE)
