@@ -1,7 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { metricsAPI } from '../services/api';
-import type { Metric, CreateMetricData } from '../types';
+import type { Metric, CreateMetricData, MediaItem } from '../types';
+
+const withToken = (url: string, token: string | null) => {
+  if (!token) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('token', token);
+    return u.toString();
+  } catch {
+    return url;
+  }
+};
 
 const Metrics: React.FC = () => {
   const [metrics, setMetrics] = useState<Metric[]>([]);
@@ -10,7 +21,7 @@ const Metrics: React.FC = () => {
   const [filterCampaign, setFilterCampaign] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMetric, setEditingMetric] = useState<Metric | null>(null);
-  const { logout, user } = useAuth();
+  const { logout, user, token } = useAuth();
 
   // Form state
   const [formData, setFormData] = useState<CreateMetricData>({
@@ -20,6 +31,17 @@ const Metrics: React.FC = () => {
     clicks: 0,
     conversions: 0
   });
+  const [formFiles, setFormFiles] = useState<File[]>([]);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createUploadProgress, setCreateUploadProgress] = useState<number | null>(null);
+
+  // Media state
+  const [openMediaMetricId, setOpenMediaMetricId] = useState<number | null>(null);
+  const [mediaByMetric, setMediaByMetric] = useState<Record<number, MediaItem[]>>({});
+  const [uploadingForMetricId, setUploadingForMetricId] = useState<number | null>(null);
+  const [uploadProgressByMetric, setUploadProgressByMetric] = useState<Record<number, number>>({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingUploadMetricIdRef = useRef<number | null>(null);
 
   const loadMetrics = async () => {
     try {
@@ -39,18 +61,37 @@ const Metrics: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsCreating(true);
     try {
+      let createdOrUpdated: Metric | null = null;
       if (editingMetric) {
-        await metricsAPI.updateMetric(editingMetric.id, formData);
+        createdOrUpdated = await metricsAPI.updateMetric(editingMetric.id, formData);
       } else {
-        await metricsAPI.createMetric(formData);
+        createdOrUpdated = await metricsAPI.createMetric(formData);
       }
+
+      // If creating a new metric and files are selected, upload them
+      if (!editingMetric && createdOrUpdated && formFiles.length > 0) {
+        const metricId = createdOrUpdated.id;
+        setCreateUploadProgress(0);
+        const { files: uploaded } = await metricsAPI.uploadMedia(metricId, formFiles, (percent) => {
+          setCreateUploadProgress(percent);
+        });
+        setMediaByMetric((prev) => ({ ...prev, [metricId]: uploaded }));
+        setOpenMediaMetricId(metricId);
+      }
+
+      // Refresh metrics and close form
+      await loadMetrics();
       setShowAddForm(false);
       setEditingMetric(null);
       resetForm();
-      loadMetrics();
+      setFormFiles([]);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to save metric');
+    } finally {
+      setIsCreating(false);
+      setCreateUploadProgress(null);
     }
   };
 
@@ -85,12 +126,72 @@ const Metrics: React.FC = () => {
       clicks: 0,
       conversions: 0
     });
+    setFormFiles([]);
   };
 
   const cancelForm = () => {
     setShowAddForm(false);
     setEditingMetric(null);
     resetForm();
+  };
+
+  // Media helpers
+  const triggerUpload = (metricId: number) => {
+    pendingUploadMetricIdRef.current = metricId;
+    setUploadingForMetricId(metricId);
+    fileInputRef.current?.click();
+  };
+
+  const onFilesSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+    const files = e.target.files;
+    const metricId = pendingUploadMetricIdRef.current;
+    e.target.value = '';
+    if (!files || !metricId) return;
+    try {
+      setUploadProgressByMetric((prev) => ({ ...prev, [metricId]: 0 }));
+      const { files: uploaded } = await metricsAPI.uploadMedia(metricId, files, (percent) => {
+        setUploadProgressByMetric((prev) => ({ ...prev, [metricId]: percent }));
+      });
+      setMediaByMetric((prev) => ({
+        ...prev,
+        [metricId]: [...(prev[metricId] || []), ...uploaded]
+      }));
+      setOpenMediaMetricId(metricId);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to upload files');
+    } finally {
+      setUploadingForMetricId(null);
+      setUploadProgressByMetric((prev) => ({ ...prev, [metricId!]: 100 }));
+      setTimeout(() => {
+        setUploadProgressByMetric((prev) => {
+          const updated = { ...prev };
+          delete updated[metricId!];
+          return updated;
+        });
+      }, 600);
+      pendingUploadMetricIdRef.current = null;
+    }
+  };
+
+  const loadMedia = async (metricId: number) => {
+    try {
+      const { files } = await metricsAPI.listMedia(metricId);
+      setMediaByMetric((prev) => ({ ...prev, [metricId]: files }));
+      setOpenMediaMetricId(metricId);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to load media');
+    }
+  };
+
+  const copyShare = async (url: string) => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        alert('Link copied to clipboard');
+      }
+    } catch {}
   };
 
   // Calculate stats
@@ -292,12 +393,39 @@ const Metrics: React.FC = () => {
                   placeholder="0"
                 />
               </div>
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px', 
+                  fontWeight: '600',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '14px'
+                }}>
+                  Upload Media (optional)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  onChange={(e) => setFormFiles(Array.from(e.target.files || []))}
+                />
+                {formFiles.length > 0 && (
+                  <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
+                    {formFiles.length} file(s) selected
+                  </div>
+                )}
+                {createUploadProgress !== null && (
+                  <div style={{ marginTop: '8px', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '999px', overflow: 'hidden' }}>
+                    <div style={{ width: `${createUploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #4ecdc4, #667eea)', transition: 'width 120ms ease' }} />
+                  </div>
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
-              <button type="submit" className="btn-primary">
+              <button type="submit" className="btn-primary" disabled={isCreating}>
                 {editingMetric ? 'Update Campaign' : 'Add Campaign'}
               </button>
-              <button type="button" onClick={cancelForm} className="btn-secondary">
+              <button type="button" onClick={cancelForm} className="btn-secondary" disabled={isCreating}>
                 Cancel
               </button>
             </div>
@@ -342,38 +470,110 @@ const Metrics: React.FC = () => {
               {metrics.map((metric) => {
                 const ctr = metric.impressions > 0 ? ((metric.clicks / metric.impressions) * 100).toFixed(2) : '0.00';
                 const convRate = metric.clicks > 0 ? ((metric.conversions / metric.clicks) * 100).toFixed(2) : '0.00';
+                const isOpen = openMediaMetricId === metric.id;
+                const media = mediaByMetric[metric.id] || [];
+                const isUploading = uploadingForMetricId === metric.id || uploadProgressByMetric[metric.id] !== undefined;
+                const progress = uploadProgressByMetric[metric.id] ?? 0;
                 
                 return (
-                  <tr key={metric.id}>
-                    <td style={{ fontWeight: '600' }}>{metric.campaign_name}</td>
-                    <td>{new Date(metric.date).toLocaleDateString()}</td>
-                    <td style={{ textAlign: 'right' }}>{metric.impressions.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right' }}>{metric.clicks.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right' }}>{metric.conversions.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right', color: '#4ecdc4' }}>{ctr}%</td>
-                    <td style={{ textAlign: 'right', color: '#667eea' }}>{convRate}%</td>
-                    <td style={{ textAlign: 'center' }}>
-                      <button
-                        onClick={() => handleEdit(metric)}
-                        className="btn-warning"
-                        style={{ marginRight: '8px' }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(metric.id)}
-                        className="btn-danger"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
+                  <React.Fragment key={metric.id}>
+                    <tr>
+                      <td style={{ fontWeight: '600' }}>{metric.campaign_name}</td>
+                      <td>{new Date(metric.date).toLocaleDateString()}</td>
+                      <td style={{ textAlign: 'right' }}>{metric.impressions.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right' }}>{metric.clicks.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right' }}>{metric.conversions.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', color: '#4ecdc4' }}>{ctr}%</td>
+                      <td style={{ textAlign: 'right', color: '#667eea' }}>{convRate}%</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <button
+                            onClick={() => handleEdit(metric)}
+                            className="btn-warning"
+                            style={{ marginRight: '8px' }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(metric.id)}
+                            className="btn-danger"
+                            style={{ marginRight: '8px' }}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={() => triggerUpload(metric.id)}
+                            className="btn-secondary"
+                            style={{ marginRight: '8px' }}
+                            disabled={isUploading}
+                          >
+                            {isUploading ? 'Uploading...' : 'Upload'}
+                          </button>
+                          <button
+                            onClick={() => (isOpen ? setOpenMediaMetricId(null) : loadMedia(metric.id))}
+                            className="btn-primary"
+                          >
+                            {isOpen ? 'Hide' : 'View'}
+                          </button>
+                        </div>
+                        {isUploading && (
+                          <div style={{ marginTop: '8px', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '999px', overflow: 'hidden' }}>
+                            <div style={{ width: `${progress}%`, height: '100%', background: 'linear-gradient(90deg, #4ecdc4, #667eea)', transition: 'width 120ms ease' }} />
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={8}>
+                          <div className="card" style={{ marginTop: '8px' }}>
+                            {media.length === 0 ? (
+                              <div style={{ color: 'rgba(255,255,255,0.7)' }}>No media uploaded for this campaign.</div>
+                            ) : (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
+                                {media.map((m) => {
+                                  const urlWithToken = withToken(m.url, token);
+                                  return (
+                                    <div key={m.url} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '8px' }}>
+                                      {m.mimetype.startsWith('image') ? (
+                                        <a href={urlWithToken} target="_blank" rel="noreferrer">
+                                          <img src={urlWithToken} alt={m.filename} style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px' }} />
+                                        </a>
+                                      ) : (
+                                        <video controls style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px' }}>
+                                          <source src={urlWithToken} />
+                                        </video>
+                                      )}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                                        <a href={urlWithToken} target="_blank" rel="noreferrer" className="btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }}>Open</a>
+                                        <button onClick={() => copyShare(urlWithToken)} className="btn-primary" style={{ padding: '6px 10px', fontSize: '12px' }}>Share</button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
       )}
+
+      {/* Hidden file input for uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        onChange={onFilesSelected}
+        style={{ display: 'none' }}
+      />
     </div>
   );
 };

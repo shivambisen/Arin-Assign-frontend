@@ -5,7 +5,6 @@ export interface User {
 
 export interface Metric {
   id: number;
-  user_id: number;
   campaign_name: string;
   date: string;
   impressions: number;
@@ -37,4 +36,12 @@ export interface CreateMetricData {
   impressions: number;
   clicks: number;
   conversions: number;
+}
+
+export interface MediaItem {
+  filename: string;
+  originalname?: string;
+  mimetype: string;
+  size?: number;
+  url: string;
 } 

@@ -1,14 +1,11 @@
 import axios from 'axios';
-import type { LoginCredentials, SignupCredentials, AuthResponse, Metric, CreateMetricData } from '../types';
+import type { LoginCredentials, SignupCredentials, AuthResponse, Metric, CreateMetricData, MediaItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
 // Add token to requests if available
@@ -55,6 +52,30 @@ export const metricsAPI = {
     const response = await api.delete(`/metrics/${id}`);
     return response.data;
   },
+
+  uploadMedia: async (
+    id: number,
+    files: File[] | FileList,
+    onProgress?: (percent: number) => void
+  ): Promise<{ files: MediaItem[] }> => {
+    const formData = new FormData();
+    const arr = Array.from(files as FileList);
+    arr.forEach((file) => formData.append('files', file));
+    const response = await api.post(`/metrics/${id}/media`, formData, {
+      onUploadProgress: (event) => {
+        if (event.total) {
+          const percent = Math.round((event.loaded * 100) / event.total);
+          if (onProgress) onProgress(percent);
+        }
+      }
+    });
+    return response.data;
+  },
+
+  listMedia: async (id: number): Promise<{ files: MediaItem[] }> => {
+    const response = await api.get(`/metrics/${id}/media`);
+    return response.data;
+  }
 };
 
 export default api; 
