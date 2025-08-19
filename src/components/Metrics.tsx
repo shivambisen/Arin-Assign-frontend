@@ -43,6 +43,29 @@ const Metrics: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pendingUploadMetricIdRef = useRef<number | null>(null);
 
+  // Fullscreen viewer
+  const [fullscreenMedia, setFullscreenMedia] = useState<MediaItem | null>(null);
+  const fullscreenRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (fullscreenMedia && fullscreenRef.current && !document.fullscreenElement) {
+      fullscreenRef.current.requestFullscreen?.().catch(() => {});
+    }
+  }, [fullscreenMedia]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => {});
+        }
+        setFullscreenMedia(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const loadMetrics = async () => {
     try {
       setLoading(true);
@@ -229,7 +252,6 @@ const Metrics: React.FC = () => {
         </div>
       )}
 
-      {/* Stats Cards */}
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-value">{totalImpressions.toLocaleString()}</div>
@@ -501,20 +523,7 @@ const Metrics: React.FC = () => {
                           >
                             Delete
                           </button>
-                          <button
-                            onClick={() => triggerUpload(metric.id)}
-                            className="btn-secondary"
-                            style={{ marginRight: '8px' }}
-                            disabled={isUploading}
-                          >
-                            {isUploading ? 'Uploading...' : 'Upload'}
-                          </button>
-                          <button
-                            onClick={() => (isOpen ? setOpenMediaMetricId(null) : loadMedia(metric.id))}
-                            className="btn-primary"
-                          >
-                            {isOpen ? 'Hide' : 'View'}
-                          </button>
+                          
                         </div>
                         {isUploading && (
                           <div style={{ marginTop: '8px', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '999px', overflow: 'hidden' }}>
@@ -546,7 +555,10 @@ const Metrics: React.FC = () => {
                                       )}
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
                                         <a href={urlWithToken} target="_blank" rel="noreferrer" className="btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }}>Open</a>
-                                        <button onClick={() => copyShare(urlWithToken)} className="btn-primary" style={{ padding: '6px 10px', fontSize: '12px' }}>Share</button>
+                                        <div>
+                                          <button onClick={() => copyShare(urlWithToken)} className="btn-primary" style={{ padding: '6px 10px', fontSize: '12px', marginRight: '8px' }}>Share</button>
+                                          <button onClick={() => setFullscreenMedia(m)} className="btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }}>Fullscreen</button>
+                                        </div>
                                       </div>
                                     </div>
                                   );
@@ -574,6 +586,62 @@ const Metrics: React.FC = () => {
         onChange={onFilesSelected}
         style={{ display: 'none' }}
       />
+
+      {/* Fullscreen overlay */}
+      {fullscreenMedia && (
+        <div
+          ref={fullscreenRef}
+          onClick={() => {
+            if (document.fullscreenElement) {
+              document.exitFullscreen?.().catch(() => {});
+            }
+            setFullscreenMedia(null);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.92)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            cursor: 'zoom-out'
+          }}
+        >
+          <div style={{ position: 'absolute', top: 16, right: 16 }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (document.fullscreenElement) {
+                  document.exitFullscreen?.().catch(() => {});
+                }
+                setFullscreenMedia(null);
+              }}
+              className="btn-danger"
+            >
+              Close
+            </button>
+          </div>
+          {fullscreenMedia.mimetype.startsWith('image') ? (
+            <img
+              src={withToken(fullscreenMedia.url, token)}
+              alt={fullscreenMedia.filename}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '8px' }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <video
+              controls
+              autoPlay
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '8px' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <source src={withToken(fullscreenMedia.url, token)} />
+            </video>
+          )}
+        </div>
+      )}
     </div>
   );
 };
