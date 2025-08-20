@@ -39,9 +39,13 @@ export interface CreateMetricData {
 }
 
 export interface MediaItem {
+  id: number;
   filename: string;
   originalname?: string;
   mimetype: string;
   size?: number;
   url: string;
+  created_at?: string;
+  metric_id?: number;
+  user_id?: number;
 } 

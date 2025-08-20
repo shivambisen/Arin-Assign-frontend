@@ -5,6 +5,7 @@ import Login from './components/Login';
 import Metrics from './components/Metrics';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
+import MediaReel from './components/MediaReel';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated } = useAuth();
@@ -23,6 +24,14 @@ const AppContent: React.FC = () => {
               <Metrics />
             </ProtectedRoute>
           } 
+        />
+        <Route
+          path="/reel/:mediaId"
+          element={
+            <ProtectedRoute>
+              <MediaReel />
+            </ProtectedRoute>
+          }
         />
         <Route 
           path="/" 

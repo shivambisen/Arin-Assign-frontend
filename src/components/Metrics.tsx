@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { metricsAPI } from '../services/api';
 import type { Metric, CreateMetricData, MediaItem } from '../types';
+// Removed unused Link import
 
 const withToken = (url: string, token: string | null) => {
   if (!token) return url;
@@ -159,11 +160,7 @@ const Metrics: React.FC = () => {
   };
 
   // Media helpers
-  const triggerUpload = (metricId: number) => {
-    pendingUploadMetricIdRef.current = metricId;
-    setUploadingForMetricId(metricId);
-    fileInputRef.current?.click();
-  };
+  // Upload via hidden input is no longer triggered here (button removed in UI)
 
   const onFilesSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const files = e.target.files;
@@ -196,15 +193,7 @@ const Metrics: React.FC = () => {
     }
   };
 
-  const loadMedia = async (metricId: number) => {
-    try {
-      const { files } = await metricsAPI.listMedia(metricId);
-      setMediaByMetric((prev) => ({ ...prev, [metricId]: files }));
-      setOpenMediaMetricId(metricId);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load media');
-    }
-  };
+  // loadMedia is not directly triggered by a button anymore in this UI variant
 
   const copyShare = async (url: string) => {
     try {
@@ -554,11 +543,12 @@ const Metrics: React.FC = () => {
                                         </video>
                                       )}
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                                        <a href={urlWithToken} target="_blank" rel="noreferrer" className="btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }}>Open</a>
-                                        <div>
+                                      <a href={`/reel/${m.id}`} target="_blank" rel="noreferrer" className="btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }}>Open</a>
+                                      <div>
                                           <button onClick={() => copyShare(urlWithToken)} className="btn-primary" style={{ padding: '6px 10px', fontSize: '12px', marginRight: '8px' }}>Share</button>
-                                          <button onClick={() => setFullscreenMedia(m)} className="btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }}>Fullscreen</button>
                                         </div>
+                                        <button onClick={() => setFullscreenMedia(m)} className="btn-secondary" style={{ padding: '6px 10px', fontSize: '12px', marginRight: '8px' }}>Fullscreen</button>
+
                                       </div>
                                     </div>
                                   );
